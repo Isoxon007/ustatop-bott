@@ -533,7 +533,7 @@ async def fallback(message: Message, state: FSMContext):
     # agar reklama kutayotgan bo'lsa, media so'raymiz
     data = await state.get_data()
     if data.get("waiting_reklama"):
-        await message.answer("❗️Iltimos, reklama uchun rasm yoki video yuboring (caption bilan).", reply_markup=back_home_kb())
+        await message.answer("❗️Iltimos, reklama uchun rasm yoki video yuboring.", reply_markup=back_home_kb())
         return
 
     await message.answer("ℹ️ /start ni bosing va menyudan tanlang.", reply_markup=main_menu_kb())
