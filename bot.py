@@ -159,7 +159,7 @@ def confirm_kb() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✅ Tayyor", callback_data="confirm:yes")],
             [InlineKeyboardButton(text="🔁 Qayta to‘ldirish", callback_data="confirm:restart")],
         ]
-    )def experience_kb() -> InlineKeyboardMarkup:
+    def experience_kb() -> InlineKeyboardMarkup:
     # 0-10 yil
     years = [str(i) for i in range(0, 11)]
     return make_inline_kb(years, "exp", cols=3)
