@@ -154,7 +154,7 @@ def skip_kb(next_cb: str = "skip") -> InlineKeyboardMarkup:
 
 
 def confirm_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+    return InlineKeyboardMarkup()
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Tayyor", callback_data="confirm:yes")],
             [InlineKeyboardButton(text="🔁 Qayta to‘ldirish", callback_data="confirm:restart")],
