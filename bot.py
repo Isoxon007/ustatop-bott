@@ -1,39 +1,68 @@
 import os
+import re
+import html
 import asyncio
-from typing import Optional, Dict, Any
+from typing import List, Optional
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, Router, F
+from aiogram.filters import CommandStart
 from aiogram.types import (
     Message,
     CallbackQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardRemove,
 )
-from aiogram.filters import CommandStart
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 
 
-# ========== CONFIG ==========
+# =========================
+#   ENV sozlamalar
+# =========================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-ADMIN_ID_RAW = os.getenv("ADMIN_ID", "").strip()
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN topilmadi. Koyeb Environment'ga BOT_TOKEN qo'shing.")
-if not ADMIN_ID_RAW.isdigit():
-    raise RuntimeError("ADMIN_ID noto‘g‘ri. Koyeb Environment'ga faqat raqam ko‘rinishida ADMIN_ID kiriting.")
-
-ADMIN_ID = int(ADMIN_ID_RAW)
+    raise RuntimeError("BOT_TOKEN topilmadi. Environment variables ga BOT_TOKEN qo'ying.")
+if ADMIN_ID == 0:
+    raise RuntimeError("ADMIN_ID topilmadi. Environment variables ga ADMIN_ID (son) qo'ying.")
 
 
-# ========== BOT INIT ==========
+# =========================
+#   Bot / Dispatcher
+# =========================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+router = Router()
+dp.include_router(router)
 
 
-# ========== DATA ==========
-# Yo‘nalishlar (o'rtacha darajada, juda mayda emas)
+# =========================
+#   States
+# =========================
+class Form(StatesGroup):
+    name = State()
+    direction = State()
+    experience = State()
+
+    services = State()   # ixtiyoriy
+    
+    region = State()
+    phone = State()
+    work_media = State() # ixtiyoriy ish rasmlari/video
+    confirm = State()
+
+class AdPost(StatesGroup):
+    waiting_post = State()
+
+
+# =========================
+#   Data ro'yxatlar
+# =========================
 DIRECTIONS = [
     "Santexnik",
     "Elektrik",
@@ -42,468 +71,501 @@ DIRECTIONS = [
     "Mebel ustasi",
     "Qurilish ustasi(beton,suvoq ishlari",
     "Kafel ustasi",
-    "Bo‘yoqchi(ichki va tashqi bezak)",
-    "Svarchik",
+    "Bo'yoqchi",
     "Tom ustasi",
-    "Gipsakarton usta",
-    "Maishiy-texnika usta",
-    "Gipsokarton",
-    "Pol ustasi ",
-    "Plastik/Alyumin rom ustasi ",
+    "Svarchik",
+    "Maishiy texnika ustasi",
     "Eshik-zamok ustasi",
-    "Oddiy ishchi(mardikor)",
-    "Boshqa",
+    "Gipsokarton",
+    "Pol ustasi",
+    "Plastik/alyumin rom ustasi",
+    "Payvandchi",
+    "Oddiy ishchi(mardikor",
 ]
 
-# Namangan bo‘yicha “tumani” bilan
-DISTRICTS = [
-    "Namangan shahar",
+# Namangan tumanlari (hammasi "tumani" bilan)
+REGIONS = [
+    "Namangan shahri",
     "Chortoq tumani",
     "Chust tumani",
     "Kosonsoy tumani",
     "Mingbuloq tumani",
+    "Namangan tumani",
     "Norin tumani",
     "Pop tumani",
-    "To‘raqo‘rg‘on tumani",
-    "Uchqo‘rg‘on tumani",
+    "To'raqo'rg'on tumani",
+    "Uchqo'rg'on tumani",
     "Uychi tumani",
-    "Yangiqo‘rg‘on tumani",
+    "Yangiqo'rg'on tumani",
 ]
 
 
-# ========== INLINE KEYBOARDS ==========
-def kb_home() -> InlineKeyboardMarkup:
+# =========================
+#   Klaviaturalar
+# =========================
+def main_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Anketa to‘ldirish", callback_data="home:anketa")],
-        [InlineKeyboardButton(text="📢 Reklama post yuborish", callback_data="home:ad")],
+        [InlineKeyboardButton(text="📝 Anketa to'ldirish", callback_data="menu:form")],
+        [InlineKeyboardButton(text="📢 Reklama post yuborish", callback_data="menu:ad")],
     ])
 
-def kb_back_home() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home:back")]
-    ])
-
-def kb_skip_next() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➡️ Keyingisi", callback_data="anketa:skip_what_can")],
-        [InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home:back")],
-    ])
-
-def kb_confirm() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Tasdiqlash", callback_data="anketa:confirm")],
-        [InlineKeyboardButton(text="🔄 Qayta to‘ldirish", callback_data="anketa:restart")],
-        [InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home:back")],
-    ])
-
-def kb_directions(page: int = 0, per_page: int = 8) -> InlineKeyboardMarkup:
-    start = page * per_page
-    items = DIRECTIONS[start:start + per_page]
-    rows = [[InlineKeyboardButton(text=it, callback_data=f"anketa:dir:{it}")] for it in items]
-
-    nav = []
-    if start > 0:
-        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"anketa:dirpage:{page-1}"))
-    if start + per_page < len(DIRECTIONS):
-        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"anketa:dirpage:{page+1}"))
-    if nav:
-        rows.append(nav)
-
-    rows.append([InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home:back")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-def kb_experience() -> InlineKeyboardMarkup:
-    # 0..10+
+def directions_kb() -> InlineKeyboardMarkup:
     rows = []
-    for i in range(0, 11):
-        rows.append([InlineKeyboardButton(text=f"{i} yil" if i < 10 else "10+ yil", callback_data=f"anketa:exp:{i}")])
-    rows.append([InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home:back")])
+    for d in DIRECTIONS:
+        rows.append([InlineKeyboardButton(text=d, callback_data=f"dir:{d}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def kb_districts(page: int = 0, per_page: int = 8) -> InlineKeyboardMarkup:
-    start = page * per_page
-    items = DISTRICTS[start:start + per_page]
-    rows = [[InlineKeyboardButton(text=it, callback_data=f"anketa:dist:{it}")] for it in items]
-
-    nav = []
-    if start > 0:
-        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"anketa:distpage:{page-1}"))
-    if start + per_page < len(DISTRICTS):
-        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"anketa:distpage:{page+1}"))
-    if nav:
-        rows.append(nav)
-
-    rows.append([InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home:back")])
+def exp_kb() -> InlineKeyboardMarkup:
+    # 1-10 yil + 10+ yil
+    rows = []
+    for i in range(1, 11):
+        rows.append([InlineKeyboardButton(text=f"{i} yil", callback_data=f"exp:{i}")])
+    rows.append([InlineKeyboardButton(text="10+ yil", callback_data="exp:10+")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def kb_phone_tip() -> InlineKeyboardMarkup:
+def regions_kb() -> InlineKeyboardMarkup:
+    rows = []
+    for r in REGIONS:
+        rows.append([InlineKeyboardButton(text=r, callback_data=f"reg:{r}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def skip_kb(next_cb: str = "skip") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📞 Raqamni kontakt ko‘rinishida yuboring", callback_data="anketa:phone_help")],
-        [InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home:back")],
+        [InlineKeyboardButton(text="➡️ Keyingisi", callback_data=next_cb)]
     ])
 
-def kb_photos_done() -> InlineKeyboardMarkup:
+def media_done_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Tayyor", callback_data="anketa:photos_done")],
-        [InlineKeyboardButton(text="⏭ O‘tkazib yuborish", callback_data="anketa:photos_skip")],
-        [InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home:back")],
+        [InlineKeyboardButton(text="✅ Tugatdim", callback_data="media:done")],
+        [InlineKeyboardButton(text="➡️ O'tkazib yuborish", callback_data="media:skip")],
     ])
 
-def kb_ad_done() -> InlineKeyboardMarkup:
+def confirm_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Yana post yuborish", callback_data="ad:again")],
-        [InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="home:back")],
+        [InlineKeyboardButton(text="✅ Tasdiqlash", callback_data="confirm:yes")],
+        [InlineKeyboardButton(text="🔄 Qayta to'ldirish", callback_data="confirm:restart")],
+        [InlineKeyboardButton(text="🏠 Menyu", callback_data="confirm:menu")],
     ])
 
-
-# ========== FSM STATES ==========
-class Anketa(StatesGroup):
-    name = State()
-    direction = State()
-    exp = State()
-    what_can = State()         # ixtiyoriy
-    district = State()
-    phone = State()
-    telegram = State()
-    photos = State()           # ixtiyoriy (photo/video)
-    confirm = State()
-
-class AdPost(StatesGroup):
-    waiting_post = State()
-
-
-# ========== HELPERS ==========
-def user_identity(m: Message) -> str:
-    u = m.from_user
-    uname = f"@{u.username}" if u.username else "username yo‘q"
-    full = (u.full_name or "").strip()
-    return f"{full} | {uname} | id={u.id}"
-
-async def go_home_chat(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("🏠 Bosh sahifa:", reply_markup=kb_home())
-
-async def go_home_cb(call: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await call.message.edit_text("🏠 Bosh sahifa:", reply_markup=kb_home())
-    await call.answer()
-
-def anketa_preview(data: Dict[str, Any]) -> str:
-    # chiroyli ko‘rinish
-    exp_val = data.get("exp")
-    exp_txt = "—" if exp_val is None else (f"{exp_val} yil" if exp_val < 10 else "10+ yil")
-    what_can = data.get("what_can") or "—"
-    tg = data.get("telegram") or "—"
-    phone = data.get("phone") or "—"
-    return (
-        "🧾 *Anketa ma’lumotlari*\n\n"
-        f"🧑‍🔧 *Ism:* {data.get('name','—')}\n"
-        f"🛠 *Yo‘nalish:* {data.get('direction','—')}\n"
-        f"🧠 *Tajriba:* {exp_txt}\n"
-        f"🧰 *Nimalar qila olasiz (ixtiyoriy):* {what_can}\n"
-        f"📍 *Hudud:* {data.get('district','—')}\n"
-        f"📞 *Telefon:* {phone}\n"
-        f"💬 *Telegram:* {tg}\n\n"
-        "Ma’lumotlar to‘g‘rimi?"
+def phone_request_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📲 Telefon raqamni yuborish", request_contact=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True
     )
 
 
-# ========== START / HOME ==========
-@dp.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext):
+# =========================
+#   Yordamchi funksiyalar
+# =========================
+def escape(s: str) -> str:
+    return html.escape(s or "")
+
+def build_profile_html(user) -> str:
+    """
+    Username bo'lsa @username,
+    bo'lmasa tg://user?id=... orqali profil link
+    """
+    if user.username:
+        return f"@{escape(user.username)}"
+    # HTML link
+    return f'<a href="tg://user?id={user.id}">Profil</a>'
+
+def normalize_phone(phone: str) -> str:
+    # Eng sodda normalize: faqat raqam va + qoldiramiz
+    p = phone.strip()
+    p = re.sub(r"[^\d+]", "", p)
+    return p
+
+async def send_admin_summary(state: FSMContext, user: Message | CallbackQuery):
+    data = await state.get_data()
+
+    # user info
+    if isinstance(user, Message):
+        u = user.from_user
+    else:
+        u = user.from_user
+
+    full_name = escape(u.full_name or "")
+    user_id = u.id
+    profile = build_profile_html(u)
+
+    name = escape(data.get("name", "—"))
+    direction = escape(data.get("direction", "—"))
+    exp = escape(str(data.get("experience", "—")))
+    region = escape(data.get("region", "—"))
+    phone = escape(data.get("phone", "—"))
+    services = escape(data.get("services", "—"))
+
+    txt = (
+        "🆕 <b>Yangi anketa</b> ✅\n\n"
+        f"👤 <b>Kimdan:</b> {full_name} | ID: <code>{user_id}</code>\n"
+        f"🔗 <b>Profil:</b> {profile}\n\n"
+        f"🧑‍🔧 <b>Ism:</b> {name}\n"
+        f"🛠 <b>Yo‘nalish:</b> {direction}\n"
+        f"🧠 <b>Tajriba:</b> {exp}\n"
+        
+        f"🧰 <b>Xizmatlar:</b> {services}\n"
+        
+        f"📍 <b>Hudud:</b> {region}\n"
+        f"📞 <b>Telefon:</b> {phone}\n"
+    )
+
+    await bot.send_message(chat_id=ADMIN_ID, text=txt, parse_mode="HTML")
+
+    # Ish rasmlari/video bo'lsa - admin ga alohida yuboramiz
+    media_list: List[dict] = data.get("work_media_list", [])
+    if media_list:
+        await bot.send_message(
+            chat_id=ADMIN_ID,
+            text="🖼 <b>Ish rasmlari / videolar:</b>",
+            parse_mode="HTML"
+        )
+        for item in media_list[:10]:  # limit: 10 ta
+            mtype = item.get("type")
+            file_id = item.get("file_id")
+            caption = item.get("caption", "")
+            cap = (f"Ish namunasi\n{caption}".strip()) if caption else "Ish namunasi"
+
+            try:
+                if mtype == "photo":
+                    await bot.send_photo(ADMIN_ID, photo=file_id, caption=cap)
+                elif mtype == "video":
+                    await bot.send_video(ADMIN_ID, video=file_id, caption=cap)
+                else:
+                    # fallback
+                    await bot.send_message(ADMIN_ID, f"Media: {file_id}")
+            except Exception:
+                await bot.send_message(ADMIN_ID, "❗ Media yuborishda xatolik bo'ldi (file_id).")
+
+
+# =========================
+#   START
+# =========================
+@router.message(CommandStart())
+async def start_cmd(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer(
+    text = (
         "👋 Assalomu alaykum!\n\n"
+        
         "UstaTop Namangan botiga xush kelibsiz.\n"
         "Bot orqali anketa to‘ldirishingiz yoki reklama postingizni yuborishingiz mumkin.\n\n"
-        "Kerakli bo‘limni tanlang:",
-        reply_markup=kb_home()
+        
+        "Kerakli bo‘limni tanlang:"
     )
+    await message.answer(text, reply_markup=main_menu_kb())
 
-@dp.callback_query(F.data == "home:back")
-async def cb_home_back(call: CallbackQuery, state: FSMContext):
-    await go_home_cb(call, state)
 
-@dp.callback_query(F.data == "home:anketa")
-async def cb_start_anketa(call: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "menu:form")
+async def menu_form(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
     await state.clear()
-    await state.set_state(Anketa.name)
-    await call.message.edit_text("👤 Ismingizni kiriting:", reply_markup=kb_back_home())
-    await call.answer()
+    await state.set_state(Form.name)
 
-@dp.callback_query(F.data == "home:ad")
-async def cb_start_ad(call: CallbackQuery, state: FSMContext):
+    # Telegram profil qiymatini boshidan avtomatik tayyorlab qo'yamiz
+    telegram_profile = build_profile_html(cb.from_user)
+    await state.update_data(telegram=telegram_profile)
+
+    await cb.message.answer("🧑‍🔧 Ismingizni kiriting:")
+
+
+@router.callback_query(F.data == "menu:ad")
+async def menu_ad(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
     await state.clear()
     await state.set_state(AdPost.waiting_post)
-    await call.message.edit_text(
-        "📢 *Reklama post yuborish*\n\n"
-        "Rasm/video yuboring va tagiga izoh (caption) yozing.\n"
-        "Yoki oddiy matn post ham yuborsangiz bo‘ladi.",
-        reply_markup=kb_back_home(),
-        parse_mode="Markdown"
+
+    await cb.message.answer(
+        "📢 Reklama postingizni yuboring (rasm/video + matni bilan yuboring).\n\n"
+        "✅ Siz yuborgan post admin tomonidan ko‘rib chiqiladi.",
+        reply_markup=skip_kb("ad:cancel")
     )
-    await call.answer()
 
 
-# ========== ANKETA FLOW ==========
-@dp.message(Anketa.name)
-async def anketa_name(message: Message, state: FSMContext):
-    txt = (message.text or "").strip()
-    if len(txt) < 2:
-        await message.answer("Iltimos, ismingizni to‘g‘ri yozing (kamida 2 ta harf).", reply_markup=kb_back_home())
+@router.callback_query(F.data == "ad:cancel")
+async def ad_cancel(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    await state.clear()
+    await cb.message.answer("🏠 Menyu:", reply_markup=main_menu_kb())
+
+
+# =========================
+#   ANKETA: Ism
+# =========================
+@router.message(Form.name)
+async def form_name(message: Message, state: FSMContext):
+    name = message.text.strip()
+    if len(name) < 2:
+        await message.answer("❌ Iltimos, ismingizni to‘g‘ri kiriting.")
         return
-    await state.update_data(name=txt)
-    await state.set_state(Anketa.direction)
-    await message.answer("🛠 Yo‘nalishingizni tanlang:", reply_markup=kb_directions(0))
 
-@dp.callback_query(F.data.startswith("anketa:dirpage:"))
-async def cb_dir_page(call: CallbackQuery, state: FSMContext):
-    page = int(call.data.split(":")[-1])
-    await call.message.edit_reply_markup(reply_markup=kb_directions(page))
-    await call.answer()
+    await state.update_data(name=name)
+    await state.set_state(Form.direction)
+    await message.answer("🛠 Yo‘nalishingizni tanlang:", reply_markup=directions_kb())
 
-@dp.callback_query(F.data.startswith("anketa:dir:"))
-async def cb_dir_pick(call: CallbackQuery, state: FSMContext):
-    direction = call.data.split("anketa:dir:", 1)[1]
+
+# =========================
+#   ANKETA: Yo‘nalish
+# =========================
+@router.callback_query(Form.direction, F.data.startswith("dir:"))
+async def form_direction(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    direction = cb.data.split("dir:", 1)[1]
     await state.update_data(direction=direction)
-    await state.set_state(Anketa.exp)
-    await call.message.edit_text("🧠 Tajribangizni tanlang:", reply_markup=kb_experience())
-    await call.answer()
+    await state.set_state(Form.experience)
+    await cb.message.answer("🧠 Qancha yil tajribangiz bor, tanlang:", reply_markup=exp_kb())
 
-@dp.callback_query(F.data.startswith("anketa:exp:"))
-async def cb_exp_pick(call: CallbackQuery, state: FSMContext):
-    exp = int(call.data.split(":")[-1])
-    await state.update_data(exp=exp)
-    await state.set_state(Anketa.what_can)
-    await call.message.edit_text(
-        "🧰 Bu sohada nimalar qila olasiz? *(ixtiyoriy)*\n\n"
-        "Xohlasangiz yozing yoki pastdagi ➡️ *Keyingisi* ni bosing.",
-        reply_markup=kb_skip_next(),
-        parse_mode="Markdown"
-    )
-    await call.answer()
 
-@dp.callback_query(F.data == "anketa:skip_what_can")
-async def cb_skip_what_can(call: CallbackQuery, state: FSMContext):
-    await state.update_data(what_can=None)
-    await state.set_state(Anketa.district)
-    await call.message.edit_text("📍 Hududingizni tanlang:", reply_markup=kb_districts(0))
-    await call.answer()
+# =========================
+#   ANKETA: Tajriba
+# =========================
+@router.callback_query(Form.experience, F.data.startswith("exp:"))
+async def form_experience(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    exp = cb.data.split("exp:", 1)[1]
+    await state.update_data(experience=exp)
 
-@dp.message(Anketa.what_can)
-async def anketa_what_can(message: Message, state: FSMContext):
-    txt = (message.text or "").strip()
-    # juda uzun bo'lib ketmasin
-    if len(txt) > 300:
-        await message.answer("Juda uzun bo‘lib ketdi. 300 belgidan oshirmang 🙂", reply_markup=kb_skip_next())
-        return
-    await state.update_data(what_can=txt)
-    await state.set_state(Anketa.district)
-    await message.answer("📍 Hududingizni tanlang:", reply_markup=kb_districts(0))
+    # Xizmatlar (ixtiyoriy)
+    await state.set_state(Form.services)
+    await cb.message.answer("🧰 Xizmatlaringizni yozing (siz qila oladigan ishlar):", reply_markup=skip_kb("services:skip"))
 
-@dp.callback_query(F.data.startswith("anketa:distpage:"))
-async def cb_dist_page(call: CallbackQuery, state: FSMContext):
-    page = int(call.data.split(":")[-1])
-    await call.message.edit_reply_markup(reply_markup=kb_districts(page))
-    await call.answer()
 
-@dp.callback_query(F.data.startswith("anketa:dist:"))
-async def cb_dist_pick(call: CallbackQuery, state: FSMContext):
-    district = call.data.split("anketa:dist:", 1)[1]
-    await state.update_data(district=district)
-    await state.set_state(Anketa.phone)
-    await call.message.edit_text(
-        "📞 Telefon raqamingizni yuboring.\n\n"
-        "Masalan: +998901234567\n"
-        "Yoki kontakt (contact) ko‘rinishida yuborsangiz ham bo‘ladi.",
-        reply_markup=kb_phone_tip()
-    )
-    await call.answer()
+@router.callback_query(Form.services, F.data == "services:skip")
+async def services_skip(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    await state.update_data(services="—")
+    await state.set_state(Form.region)
+    await cb.message.answer("📍 Hududingizni tanlang:", reply_markup=regions_kb())
 
-@dp.callback_query(F.data == "anketa:phone_help")
-async def cb_phone_help(call: CallbackQuery):
-    await call.answer(
-        "Telefonni kontakt ko‘rinishida yuborish uchun Telegramda 📎 (attach) → Contact tanlang.",
-        show_alert=True
-    )
 
-@dp.message(Anketa.phone)
-async def anketa_phone(message: Message, state: FSMContext):
-    phone: Optional[str] = None
+@router.message(Form.services)
+async def services_text(message: Message, state: FSMContext):
+    services = message.text.strip()
+    if not services:
+        services = "—"
+    await state.update_data(services=services)
+    await state.set_state(Form.region)
+    await message.answer("📍 Hududingizni tanlang:", reply_markup=regions_kb())
 
-    if message.contact and message.contact.phone_number:
-        phone = message.contact.phone_number.strip()
-        if not phone.startswith("+"):
-            phone = "+" + phone
 
-    if not phone:
-        txt = (message.text or "").strip().replace(" ", "")
-        # juda sodda tekshiruv
-        if txt.startswith("+998") and len(txt) >= 13:
-            phone = txt
+# =========================
+#   ANKETA: Hudud
+# =========================
+@router.callback_query(Form.region, F.data.startswith("reg:"))
+async def form_region(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    region = cb.data.split("reg:", 1)[1]
+    await state.update_data(region=region)
 
-    if not phone:
-        await message.answer("Telefon raqam noto‘g‘ri. Masalan: +998901234567", reply_markup=kb_phone_tip())
-        return
+    # Telefon: contact request (reply keyboard) kerak
+    await state.set_state(Form.phone)
+    await cb.message.answer("📞 Telefon raqamingizni yuboring:", reply_markup=phone_request_kb())
 
+
+# =========================
+#   ANKETA: Telefon
+# =========================
+@router.message(Form.phone, F.contact)
+async def phone_contact(message: Message, state: FSMContext):
+    phone = message.contact.phone_number or ""
+    phone = normalize_phone(phone)
     await state.update_data(phone=phone)
-    await state.set_state(Anketa.telegram)
-    await message.answer("💬 Telegram username’ingizni yuboring (masalan: @username):", reply_markup=kb_back_home())
 
-@dp.message(Anketa.telegram)
-async def anketa_telegram(message: Message, state: FSMContext):
-    txt = (message.text or "").strip()
-    if not txt.startswith("@") or len(txt) < 3:
-        await message.answer("Username noto‘g‘ri. Masalan: @username", reply_markup=kb_back_home())
-        return
+    # Reply keyboardni olib tashlaymiz
+    await message.answer("✅ Qabul qilindi.", reply_markup=ReplyKeyboardRemove())
 
-    await state.update_data(telegram=txt)
-    await state.set_state(Anketa.photos)
-
+    # ixtiyoriy ish rasmlari/video bosqichi
+    await state.set_state(Form.work_media)
+    await state.update_data(work_media_list=[])
     await message.answer(
-        "🖼 Ish rasmlari *(ixtiyoriy)*\n\n"
-        "1–5 ta rasm/video yuborishingiz mumkin.\n"
-        "Bo‘lmasa pastdagi *O‘tkazib yuborish* ni bosing.",
-        reply_markup=kb_photos_done(),
-        parse_mode="Markdown"
+        "🖼 Ish rasmlari yoki video yuborishingiz mumkin (ixtiyoriy).\n"
+        "Bir nechta yuborsangiz ham bo‘ladi.\n\n"
+        "Yuborib bo‘lgach <b>✅ Tayyor</b> ni bosing.",
+        reply_markup=media_done_kb(),
+        parse_mode="HTML"
     )
 
-@dp.message(Anketa.photos, F.photo | F.video)
-async def anketa_photos_collect(message: Message, state: FSMContext):
-    data = await state.get_data()
-    media = data.get("media", [])
-    if len(media) >= 5:
-        await message.answer("Maksimum 5 ta fayl. Endi ✅ Tayyor ni bosing.", reply_markup=kb_photos_done())
+
+@router.message(Form.phone)
+async def phone_text(message: Message, state: FSMContext):
+    text = normalize_phone(message.text or "")
+    if len(re.sub(r"[^\d]", "", text)) < 7:
+        await message.answer("❌ Telefon raqam noto‘g‘ri ko‘rinmoqda. Pastdagi tugma orqali yuboring.")
         return
 
-    if message.photo:
-        file_id = message.photo[-1].file_id
-        media.append({"type": "photo", "file_id": file_id})
-    elif message.video:
-        file_id = message.video.file_id
-        media.append({"type": "video", "file_id": file_id})
+    await state.update_data(phone=text)
+    await message.answer("✅ Qabul qilindi.", reply_markup=ReplyKeyboardRemove())
 
-    await state.update_data(media=media)
-    await message.answer(f"✅ Qabul qilindi. Hozircha {len(media)}/5 ta.\nYana yuboring yoki ✅ Tayyor ni bosing.", reply_markup=kb_photos_done())
-
-@dp.callback_query(F.data == "anketa:photos_skip")
-async def cb_photos_skip(call: CallbackQuery, state: FSMContext):
-    await state.update_data(media=[])
-    await state.set_state(Anketa.confirm)
-    data = await state.get_data()
-    await call.message.edit_text(anketa_preview(data), reply_markup=kb_confirm(), parse_mode="Markdown")
-    await call.answer()
-
-@dp.callback_query(F.data == "anketa:photos_done")
-async def cb_photos_done(call: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    media = data.get("media", [])
-    # agar user "tayyor" bossa va hech narsa yubormagan bo'lsa ham bo'ladi
-    await state.update_data(media=media if media else [])
-    await state.set_state(Anketa.confirm)
-    data = await state.get_data()
-    await call.message.edit_text(anketa_preview(data), reply_markup=kb_confirm(), parse_mode="Markdown")
-    await call.answer()
-
-@dp.callback_query(F.data == "anketa:restart")
-async def cb_anketa_restart(call: CallbackQuery, state: FSMContext):
-    await state.clear()
-    await state.set_state(Anketa.name)
-    await call.message.edit_text("👤 Ismingizni kiriting:", reply_markup=kb_back_home())
-    await call.answer()
-
-@dp.callback_query(F.data == "anketa:confirm")
-async def cb_anketa_confirm(call: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    await call.answer()
-
-    # Adminga yuboriladigan xabar (kim yuborgani ham chiqadi)
-    sender = call.from_user
-    sender_line = f"{sender.full_name} | @{sender.username}" if sender.username else f"{sender.full_name} | username yo‘q"
-    header = (
-        "🆕 *Yangi anketa keldi!* ✅\n\n"
-        f"👤 *Kimdan:* {sender_line}\n"
-        f"🆔 *ID:* `{sender.id}`\n\n"
-    )
-    text_to_admin = header + anketa_preview(data)
-
-    # Avval matn yuboramiz
-    await bot.send_message(ADMIN_ID, text_to_admin, parse_mode="Markdown")
-
-    # Keyin media bo'lsa, alohida yuboramiz (caption bilan emas, tartibli)
-    media = data.get("media", [])
-    for item in media:
-        if item["type"] == "photo":
-            await bot.send_photo(ADMIN_ID, item["file_id"])
-        else:
-            await bot.send_video(ADMIN_ID, item["file_id"])
-
-    await state.clear()
-    await call.message.edit_text(
-        "✅ Anketangiz qabul qilindi.\nTez orada admin ko‘rib chiqadi va kanalga joylanadi. Rahmat!",
-        reply_markup=kb_home()
+    await state.set_state(Form.work_media)
+    await state.update_data(work_media_list=[])
+    await message.answer(
+        "🖼 Ish rasmlari yoki video yuborishingiz mumkin (ixtiyoriy).\n"
+        "Bir nechta yuborsangiz ham bo‘ladi.\n\n"
+        "Yuborib bo‘lgach <b>✅ Tayyor</b> ni bosing.",
+        reply_markup=media_done_kb(),
+        parse_mode="HTML"
     )
 
 
-# ========== AD POST FLOW ==========
-@dp.message(AdPost.waiting_post)
+# =========================
+#   ANKETA: Ish rasmlari/video (ixtiyoriy)
+# =========================
+@router.message(Form.work_media, F.photo)
+async def work_media_photo(message: Message, state: FSMContext):
+    data = await state.get_data()
+    media_list = data.get("work_media_list", [])
+
+    photo = message.photo[-1]
+    media_list.append({
+        "type": "photo",
+        "file_id": photo.file_id,
+        "caption": message.caption or ""
+    })
+    await state.update_data(work_media_list=media_list)
+
+    await message.answer("✅ Qabul qilindi. Yana yuborishingiz mumkin yoki <b>✅ Tayyor</b> ni bosing.", parse_mode="HTML")
+
+
+@router.message(Form.work_media, F.video)
+async def work_media_video(message: Message, state: FSMContext):
+    data = await state.get_data()
+    media_list = data.get("work_media_list", [])
+
+    media_list.append({
+        "type": "video",
+        "file_id": message.video.file_id,
+        "caption": message.caption or ""
+    })
+    await state.update_data(work_media_list=media_list)
+
+    await message.answer("✅ Qabul qilindi. Yana yuborishingiz mumkin yoki <b>✅ Tayyor</b> ni bosing.", parse_mode="HTML")
+
+
+@router.callback_query(Form.work_media, F.data == "media:skip")
+async def work_media_skip(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    # media yo'q
+    await state.update_data(work_media_list=[])
+    await state.set_state(Form.confirm)
+
+    data = await state.get_data()
+    await cb.message.answer(build_preview_text(cb.from_user, data), reply_markup=confirm_kb(), parse_mode="HTML")
+
+
+@router.callback_query(Form.work_media, F.data == "media:done")
+async def work_media_done(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    await state.set_state(Form.confirm)
+
+    data = await state.get_data()
+    await cb.message.answer(build_preview_text(cb.from_user, data), reply_markup=confirm_kb(), parse_mode="HTML")
+
+
+def build_preview_text(user, data: dict) -> str:
+    # Preview - userga ko'rsatish
+    telegram = data.get("telegram") or build_profile_html(user)
+    name = escape(data.get("name", "—"))
+    direction = escape(data.get("direction", "—"))
+    exp = escape(str(data.get("experience", "—")))
+    
+    services = escape(data.get("services", "—"))
+    
+    region = escape(data.get("region", "—"))
+    phone = escape(data.get("phone", "—"))
+
+    return (
+        "📋 <b>Anketa ma’lumotlari</b>\n\n"
+        f"🧑‍🔧 <b>Ism:</b> {name}\n"
+        f"🛠 <b>Yo‘nalish:</b> {direction}\n"
+        f"🧠 <b>Tajriba:</b> {exp}\n"
+        
+        f"🧰 <b>Xizmatlar:</b> {services}\n"
+        
+        f"📍 <b>Hudud:</b> {region}\n"
+        f"📞 <b>Telefon:</b> {phone}\n"
+        f"💬 <b>Telegram:</b> {telegram}\n\n"
+        "✅ Hammasi to‘g‘rimi?"
+    )
+
+
+# =========================
+#   ANKETA: Tasdiqlash
+# =========================
+@router.callback_query(Form.confirm, F.data == "confirm:yes")
+async def confirm_yes(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+
+    # Adminga yuboramiz
+    await send_admin_summary(state, cb)
+
+    await state.clear()
+    await cb.message.answer(
+        "✅ Anketangiz qabul qilindi.\n"
+        "Admin tomonidan tekshirilgach kanalga joylanadi. Rahmat!",
+        reply_markup=main_menu_kb()
+    )
+
+
+@router.callback_query(Form.confirm, F.data == "confirm:restart")
+async def confirm_restart(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    await state.clear()
+    await state.set_state(Form.name)
+
+    # profil linkni yana avtomatik tayyorlaymiz
+    await state.update_data(telegram=build_profile_html(cb.from_user))
+
+    await cb.message.answer("🔄 Qaytadan boshladik.\n🧑‍🔧 Ismingizni kiriting:")
+
+
+@router.callback_query(Form.confirm, F.data == "confirm:menu")
+async def confirm_menu(cb: CallbackQuery, state: FSMContext):
+    await cb.answer()
+    await state.clear()
+    await cb.message.answer("🏠 Menyu:", reply_markup=main_menu_kb())
+
+
+# =========================
+#   Reklama post yuborish (admin ga yetkazish)
+# =========================
+@router.message(AdPost.waiting_post)
 async def ad_post_receive(message: Message, state: FSMContext):
-    # User reklama post yuboradi: matn yoki rasm/video + caption
-    sender_info = user_identity(message)
+    # Foydalanuvchi yuborgan postni admin ga yetkazamiz
+    u = message.from_user
+    full_name = escape(u.full_name or "")
+    user_id = u.id
+    profile = build_profile_html(u)
 
-    sent_any = False
-
-    if message.photo:
-        file_id = message.photo[-1].file_id
-        caption = (message.caption or "").strip()
-        cap = f"📢 *Reklama post*\n👤 {sender_info}\n\n{caption}" if caption else f"📢 *Reklama post*\n👤 {sender_info}"
-        await bot.send_photo(ADMIN_ID, file_id, caption=cap[:1024], parse_mode="Markdown")
-        sent_any = True
-
-    elif message.video:
-        file_id = message.video.file_id
-        caption = (message.caption or "").strip()
-        cap = f"📢 *Reklama post*\n👤 {sender_info}\n\n{caption}" if caption else f"📢 *Reklama post*\n👤 {sender_info}"
-        await bot.send_video(ADMIN_ID, file_id, caption=cap[:1024], parse_mode="Markdown")
-        sent_any = True
-
-    else:
-        txt = (message.text or "").strip()
-        if txt:
-            await bot.send_message(ADMIN_ID, f"📢 *Reklama post (matn)*\n👤 {sender_info}\n\n{txt}", parse_mode="Markdown")
-            sent_any = True
-
-    if not sent_any:
-        await message.answer("Iltimos rasm/video yoki matn yuboring. (Bo‘sh post qabul qilinmaydi)", reply_markup=kb_back_home())
-        return
-
-    await message.answer(
-        "✅ Qabul qilindi!\nAdmin ko‘rib chiqadi, talablarimizga to‘g‘ri kelsa kanalga joylanadi. Rahmat!",
-        reply_markup=kb_ad_done()
+    header = (
+        "📢 <b>Yangi reklama post keldi</b> ✅\n\n"
+        f"👤 <b>Kimdan:</b> {full_name} | ID: <code>{user_id}</code>\n"
+        f"🔗 <b>Profil:</b> {profile}\n"
     )
+
+    # Avval info yuboramiz
+    await bot.send_message(ADMIN_ID, header, parse_mode="HTML")
+
+    # Keyin postni copy/forward qilamiz (caption ham keladi)
+    try:
+        await bot.copy_message(
+            chat_id=ADMIN_ID,
+            from_chat_id=message.chat.id,
+            message_id=message.message_id
+        )
+    except Exception:
+        # fallback: hech bo'lmasa matn
+        await bot.send_message(ADMIN_ID, f"Post nusxalashda xatolik. Matn:\n{message.text or '—'}")
+
     await state.clear()
-
-@dp.callback_query(F.data == "ad:again")
-async def cb_ad_again(call: CallbackQuery, state: FSMContext):
-    await state.set_state(AdPost.waiting_post)
-    await call.message.edit_text(
-        "📢 Yana reklama post yuboring (rasm/video + caption yoki matn).",
-        reply_markup=kb_back_home()
+    await message.answer(
+        "✅ Qabul qilindi.\nSiz yuborgan reklama admin tomonidan ko‘rib chiqiladi va kanalga joylanadi.Rahmat!.",
+        reply_markup=main_menu_kb()
     )
-    await call.answer()
 
 
-# ========== FALLBACKS ==========
-@dp.message()
-async def fallback(message: Message):
-    # foydalanuvchi holatsiz yozib yuborsa
-    await message.answer("Iltimos /start ni bosing va menyudan tanlang.", reply_markup=kb_home())
-
-@dp.callback_query()
-async def fallback_cb(call: CallbackQuery):
-    await call.answer("Iltimos menyudan foydalaning.", show_alert=False)
-
-
+# =========================
+#   Run
+# =========================
 async def main():
     await dp.start_polling(bot)
 
