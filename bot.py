@@ -43,7 +43,7 @@ DIRECTIONS = [
     "Gaz ustasi",
     "Konditsioner ustasi",
     "Mebel ustasi",
-    "Qurilish ustasi(beton,suvoq ishlari",
+    "Qurilish ustasi(beton,suvoq ishlari)",
     "Kafel ustasi",
     "Bo'yoqchi",
     "Tom ustasi",
@@ -253,7 +253,12 @@ async def send_admin_reklama(bot: Bot, msg: Message) -> None:
     await bot.send_message(
         chat_id=ADMIN_CHAT_ID,
         text=f"📣 <b>Yangi reklama post</b>\n🔗 <b>Profil:</b> {profile_link_html(msg.from_user)}",
-        parse_mode=ParseMode.HTML,
+        from aiogram.client.default import DefaultBotProperties
+
+bot = Bot(
+    TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
         disable_web_page_preview=True
     )
     # copy_message caption bilan birga keladi
