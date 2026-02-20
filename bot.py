@@ -155,10 +155,10 @@ def skip_kb(next_cb: str = "skip") -> InlineKeyboardMarkup:
 
 def confirm_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup()
-        inline_keyboard=[
+        inline_keyboard=
             [InlineKeyboardButton(text="✅ Tayyor", callback_data="confirm:yes")],
             [InlineKeyboardButton(text="🔁 Qayta to‘ldirish", callback_data="confirm:restart")],
-        ]
+
     def experience_kb() -> InlineKeyboardMarkup:
     # 0-10 yil
     years = [str(i) for i in range(0, 11)]
