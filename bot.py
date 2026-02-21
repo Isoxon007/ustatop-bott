@@ -148,18 +148,21 @@ def menu_kb() -> InlineKeyboardMarkup:
 def skip_kb(next_cb: str = "skip") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="⏭️ Keyingisi", callback_data=next_cb)]
+            [InlineKeyboardButton(text="⏭ Keyingisi", callback_data=next_cb)]
         ]
     )
 
 
 def confirm_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup()
-       
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
             [InlineKeyboardButton(text="✅ Tayyor", callback_data="confirm:yes")],
             [InlineKeyboardButton(text="🔁 Qayta to‘ldirish", callback_data="confirm:restart")],
+        ]
+    )
 
-    def experience_kb() -> InlineKeyboardMarkup:
+
+def experience_kb() -> InlineKeyboardMarkup:
     # 0-10 yil
     years = [str(i) for i in range(0, 11)]
     return make_inline_kb(years, "exp", cols=3)
@@ -229,7 +232,9 @@ async def menu_choice(call: CallbackQuery, state: FSMContext):
         await state.set_state(Form.ad_post)
         await call.message.answer(
             "📣 Reklama postingizni yuboring.\n\n"
-            "✅ Matn, rasm, video yoki rasm/video + matn bo‘lishi mumkin.\n"
+            
+            "✅ Matn, rasm, video yoki rasm/video + matn yuborishingiz mumkin.\n"
+            
         )
         return
 
@@ -241,7 +246,7 @@ async def menu_choice(call: CallbackQuery, state: FSMContext):
 async def form_name(message: Message, state: FSMContext):
     name = message.text.strip() if message.text else ""
     if len(name) < 2:
-        await message.answer("❗️ Ism juda qisqa. Qaytadan kiriting:")
+        await message.answer("❗ Ism juda qisqa. Qaytadan kiriting:")
         return
 
     await state.update_data(name=name)
@@ -268,7 +273,8 @@ async def form_experience(call: CallbackQuery, state: FSMContext):
     await state.set_state(Form.services)
     await call.message.answer(
         "🧰 Xizmatlaringiz :\n"
-        "Agar yozishni xohlamasangiz, ⏭️ Keyingisi ni bosing.",
+        
+        "Agar yozishni xohlamasangiz, ⏭ Keyingisi ni bosing.",
         reply_markup=skip_kb("skip:services")
     )
 
@@ -278,7 +284,10 @@ async def skip_services(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await state.update_data(services="—")
     await state.set_state(Form.region)
-    await call.message.answer("📍 Hududingizni tanlang:", reply_markup=make_inline_kb(REGIONS, "reg", cols=2))@dp.message(Form.services)
+    await call.message.answer("📍 Hududingizni tanlang:", reply_markup=make_inline_kb(REGIONS, "reg", cols=2))
+
+
+@dp.message(Form.services)
 async def form_services(message: Message, state: FSMContext):
     services = (message.text or "").strip()
     if not services:
@@ -315,7 +324,9 @@ async def form_phone_contact(message: Message, state: FSMContext):
     await message.answer("✅ Qabul qilindi.", reply_markup=ReplyKeyboardRemove())
     await message.answer(
         "💬 Telegram username’ingizni yuboring (masalan: @username).\n"
-        "Agar username bo‘lmasa yoki yubormoqchi bo‘lmasangiz, ⏭️ Keyingisi ni bosing.\n\n",
+        
+        "Agar username bo‘lmasa yoki yubormoqchi bo‘lmasangiz, ⏭ Keyingisi ni bosing.\n\n",
+        
         reply_markup=skip_kb("skip:telegram")
     )
 
@@ -325,7 +336,7 @@ async def form_phone_text_fallback(message: Message, state: FSMContext):
     # Agar user contact yubormasa, qo'lda raqam yozsa ham qabul qilamiz
     phone = (message.text or "").strip()
     if not phone or len(re.sub(r"\D+", "", phone)) < 7:
-        await message.answer("❗️ Telefon raqam noto‘g‘ri. Pastdagi tugma bilan yuboring 👇", reply_markup=contact_request_kb())
+        await message.answer("❗ Telefon raqam noto‘g‘ri. Pastdagi tugma bilan yuboring 👇", reply_markup=contact_request_kb())
         return
 
     await state.update_data(phone=normalize_phone(phone))
@@ -333,7 +344,7 @@ async def form_phone_text_fallback(message: Message, state: FSMContext):
     await message.answer("✅ Qabul qilindi.", reply_markup=ReplyKeyboardRemove())
     await message.answer(
         "💬 Telegram username’ingizni yuboring (masalan: @username).\n"
-        "Agar username bo‘lmasa, ⏭️ Keyingisi ni bosing.",
+        "Agar username bo‘lmasa, ⏭ Keyingisi ni bosing.",
         reply_markup=skip_kb("skip:telegram")
     )
 
@@ -383,7 +394,10 @@ async def send_summary(message: Message, state: FSMContext):
         f"💬 <b>Telegram:</b> {tg_display}\n\n"
         "✅ Hammasi to‘g‘rimi? Unda <b>✅ Tayyor</b> ni bosing."
     )
-    await message.answer(text, reply_markup=confirm_kb())@dp.callback_query(Form.confirm, F.data.startswith("confirm:"))
+    await message.answer(text, reply_markup=confirm_kb())
+
+
+@dp.callback_query(Form.confirm, F.data.startswith("confirm:"))
 async def form_confirm(call: CallbackQuery, state: FSMContext):
     action = call.data.split(":", 1)[1]
     await call.answer()
@@ -412,7 +426,9 @@ async def form_confirm(call: CallbackQuery, state: FSMContext):
         f"🧑‍🔧 <b>Ism:</b> {data.get('name')}\n"
         f"🛠 <b>Yo‘nalish:</b> {data.get('direction')}\n"
         f"🧠 <b>Tajriba:</b> {data.get('experience')}\n"
+        
         f"🧰 <b>Xizmatlar:</b> {data.get('services')}\n"
+        
         f"📍 <b>Hudud:</b> {data.get('region')}\n"
         f"📞 <b>Telefon:</b> {data.get('phone')}\n"
         f"💬 <b>Telegram:</b> {tg_line}\n"
@@ -458,7 +474,7 @@ async def ad_post_receive(message: Message, state: FSMContext):
         if message.content_type == ContentType.TEXT:
             await bot.send_message(ADMIN_CHAT_ID, message.text)
         else:
-            await bot.send_message(ADMIN_CHAT_ID, "❗️ Postni forward qilishda xatolik bo‘ldi (copy qilib bo‘lmadi).")
+            await bot.send_message(ADMIN_CHAT_ID, "❗ Postni forward qilishda xatolik bo‘ldi (copy qilib bo‘lmadi).")
 
     await state.set_state(Form.menu)
     await message.answer(
@@ -474,5 +490,5 @@ async def main():
     await dp.start_polling(bot)
 
 
-if name == "main":
+if __name__ == "__main__":
     asyncio.run(main())
