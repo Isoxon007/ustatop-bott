@@ -58,7 +58,6 @@ DIRECTIONS = [
     "Plastik/alyumin rom ustasi",
     "Payvandchi",
     "Oddiy ishchi(mardikor)",
-    "Boshqa",
 ]
 
 # Namangan hududlari (tumani qo‘shilgan)
