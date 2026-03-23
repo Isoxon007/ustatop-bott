@@ -87,7 +87,9 @@ class Form(StatesGroup):
     name = State()
     direction = State()
     experience = State()
-    services = State()          # ixtiyoriy
+    
+    services = State() 
+    # ixtiyoriy
     region = State()
     phone = State()
     telegram = State()          # ixtiyoriy
@@ -387,7 +389,9 @@ async def send_summary(message: Message, state: FSMContext):
         f"👤 <b>Ism:</b> {data.get('name')}\n"
         f"🛠 <b>Yo‘nalish:</b> {data.get('direction')}\n"
         f"🧠 <b>Tajriba:</b> {data.get('experience')}\n"
+        
         f"🧰 <b>Xizmatlar:</b> {data.get('services')}\n"
+        
         f"📍 <b>Hudud:</b> {data.get('region')}\n"
         f"📞 <b>Telefon:</b> {data.get('phone')}\n"
         f"💬 <b>Telegram:</b> {tg_display}\n\n"
@@ -420,7 +424,7 @@ async def form_confirm(call: CallbackQuery, state: FSMContext):
         tg_line = sender_profile if not u.username else f"https://t.me/{u.username}"
 
     admin_text = (
-        "🆕 <b>Yangi anketa ✅</b>\n\n"
+        "🆕 <b>Yangi anketa keldi ✅</b>\n\n"
         f"👤 <b>Kimdan:</b> {sender_profile}\n\n"
         f"🧑‍🔧 <b>Ism:</b> {data.get('name')}\n"
         f"🛠 <b>Yo‘nalish:</b> {data.get('direction')}\n"
@@ -458,7 +462,7 @@ async def ad_post_receive(message: Message, state: FSMContext):
     # 1) Adminga kimdanligi
     await bot.send_message(
         ADMIN_CHAT_ID,
-        f"📣 <b>Yangi reklama post ✅</b>\n👤 <b>Kimdan:</b> {sender_profile}"
+        f"📣 <b>Yangi reklama post keldi✅</b>\n👤 <b>Kimdan:</b> {sender_profile}"
     )
 
     # 2) Postni forward qilish (caption ham ketadi)
